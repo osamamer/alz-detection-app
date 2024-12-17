@@ -1,35 +1,27 @@
-// @ts-nocheck
-/* eslint-disable no-unused-vars */
-import {useState} from 'react'
-import './App.css'
-import '@fontsource/roboto/300.css';
-import '@fontsource/roboto/400.css';
-import '@fontsource/roboto/500.css';
-import '@fontsource/roboto/700.css';
 import {BrowserRouter as Router, Routes, Route} from "react-router-dom";
-import {
-    CssBaseline, ThemeProvider
-} from "@mui/material";
-import {HomePage} from "./pages/HomePage.jsx";
-import {darkTheme, lightTheme} from "./Theme.tsx";
-
-
+import {CssBaseline, ThemeProvider} from "@mui/material";
+import {useState} from 'react';
+import {HomePage} from "./pages/HomePage";
+import {LandingPage} from "./pages/LandingPage";
+import {darkTheme, lightTheme} from "./Theme";
 
 function App() {
     const [darkMode, setDarkMode] = useState(true);
     const toggleTheme = () => {
         setDarkMode(!darkMode);
-    }
+    };
+
     return (
         <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
-            <CssBaseline/>
+            <CssBaseline />
             <Router>
                 <Routes>
-                    <Route exact path="/" element={<HomePage darkMode={darkMode} darkModeFunction={toggleTheme}/>}/>
+                    <Route path="/" element={<HomePage darkMode={darkMode} darkModeFunction={toggleTheme} />} />
+                    <Route path="/landing" element={<LandingPage darkMode={darkMode} darkModeFunction={toggleTheme} />} />
                 </Routes>
             </Router>
         </ThemeProvider>
     );
 }
 
-export default App
+export default App;
