@@ -3,9 +3,11 @@ from .utils import save_uploaded_file
 from .model_handlers import predict_2d_image, predict_3d_image, predict_audio
 import base64
 import numpy as np
+# import tensorflow as tf
 from PIL import Image
 from io import BytesIO
-
+from transformers import pipeline
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 main_routes = Blueprint('main_routes', __name__)
 
 @main_routes.route('/predict-2d-image', methods=['POST'])
@@ -29,6 +31,9 @@ def predict_audio_route():
     result = predict_audio(file_path)
     return jsonify({'result': result})
 
+# Load Hugging Face pipeline
+analyzer = pipeline("text2text-generation", model="google/flan-t5-small", framework="pt")
+
 @main_routes.route('/analyze-picture', methods=['POST'])
 def analyze_picture():
     data = request.json
@@ -37,15 +42,48 @@ def analyze_picture():
     if not description:
         return jsonify({'result': 'No description provided. Please try again.'}), 400
 
-    # Simple mock NLP analysis
-    keywords = ["plate", "sink", "overflow", "woman"]
-    keyword_matches = [word for word in keywords if word in description.lower()]
-    if keyword_matches:
-        result = f"Good job! You noticed these key elements: {', '.join(keyword_matches)}."
-    else:
-        result = "Try to provide more details in your description."
+    prompt = f"""
+    You are a language analysis assistant. Analyze the following description of a picture:
+    Description: "{description}"
+    
+    Key elements to look for:
+    - Coherence: Does the description flow logically? Are the sentences well-structured and connected?
+    - Detail: How detailed is the description? Does it include specific observations?
+    - Vocabulary: Are relevant and appropriate terms used?
 
-    return jsonify({'result': result})
+    Provide the analysis in this structured format:
+    - Coherence (0-3): [Score and explanation]
+    - Detail (0-3): [Score and explanation]
+    - Vocabulary (0-3): [Score and explanation]
+    - Key elements mentioned: [List of elements]
+    - Overall feedback: [Summary of strengths and areas for improvement]
+    """
+    tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-large")
+    model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-small")
+
+    input_text = f"""
+    Please return a text output. Analyze the following description of a picture:
+    Description: "{description}"
+    
+    Key elements to look for:
+    - Coherence: Does the description flow logically? Are the sentences well-structured and connected?
+    - Detail: How detailed is the description? Does it include specific observations?
+    - Vocabulary: Are relevant and appropriate terms used?
+
+    Provide the analysis in this structured format:
+    - Coherence (0-3): [Score and explanation]
+    - Detail (0-3): [Score and explanation]
+    - Vocabulary (0-3): [Score and explanation]
+    - Key elements mentioned: [List of elements]
+    - Overall feedback: [Summary of strengths and areas for improvement]
+    """
+    # input_text = "What is a strawberry?"
+    input_ids = tokenizer(input_text, return_tensors="pt").input_ids
+
+    outputs = model.generate(input_ids)
+    # response = analyzer(prompt, max_length=200)
+    print(tokenizer.decode(outputs[0]))
+    return tokenizer.decode(outputs[0])
 
 @main_routes.route('/analyze-clock', methods=['POST'])
 def analyze_clock():

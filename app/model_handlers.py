@@ -1,9 +1,8 @@
 from tensorflow.keras.models import load_model
-import tensorflow as tf
+# import tensorflow.keras.models
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU usage
-import tensorflow as tf
 
 # Load the model
 
