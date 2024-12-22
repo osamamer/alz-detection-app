@@ -4,7 +4,7 @@ import AudioTab from '../tabs/AudioTab';
 import ImageTab from '../tabs/ImageTab';
 import PictureTestTab from '../tabs/PictureTestTab';
 import MemoryTestTab from '../tabs/MemoryTestTab';
-import ClockDrawingTab from "../tabs/ClockDrawingTab"; // Import the new Memory Test tab
+import ClockDrawingTab from "../tabs/ClockDrawingTab";
 
 export const HomePage = () => {
     const [tabIndex, setTabIndex] = useState(0);
@@ -14,7 +14,16 @@ export const HomePage = () => {
     };
 
     return (
-        <Container maxWidth="lg" sx={{ py: 8 }}>
+        <Container
+            maxWidth="lg"
+            sx={{
+                py: 8,
+                minHeight: '100vh', // Ensure the container takes the full viewport height
+                display: 'flex',
+                flexDirection: 'column',
+            }}
+        >
+            {/* Header Section */}
             <Box textAlign="center" sx={{ mb: 6 }}>
                 <Typography variant="h2">Alzheimer's Hub</Typography>
                 <Typography variant="body1" sx={{ mt: 2 }}>
@@ -22,6 +31,7 @@ export const HomePage = () => {
                 </Typography>
             </Box>
 
+            {/* Tabs Section */}
             <AppBar position="static" sx={{ borderRadius: 2, mb: 4 }}>
                 <Tabs
                     value={tabIndex}
@@ -36,16 +46,24 @@ export const HomePage = () => {
                     <Tab label="Audio" />
                     <Tab label="Picture Test" />
                     <Tab label="Memory Test" />
-                    <Tab label="Clock Drawing Test"/>
+                    <Tab label="Clock Drawing Test" />
                 </Tabs>
             </AppBar>
 
-            <Box>
+            {/* Tab Content Section */}
+            <Box
+                sx={{
+                    // flex: 1, // Allow the Box to stretch to fill remaining height
+                    // overflowY: 'auto', // Enable scrolling if content overflows
+                }}
+            >
                 {tabIndex === 0 && <ImageTab />}
                 {tabIndex === 1 && <AudioTab />}
-                {tabIndex === 2 && <PictureTestTab />}
-                {tabIndex === 3 && <MemoryTestTab />} {/* Render the Memory Test */}
-                {tabIndex === 4 && <ClockDrawingTab/>}
+                {tabIndex === 2 && <Box sx={{ border: '2px solid red' }}>
+                    <PictureTestTab />
+                </Box>}
+                {tabIndex === 3 && <MemoryTestTab />}
+                {tabIndex === 4 && <ClockDrawingTab />}
             </Box>
         </Container>
     );
