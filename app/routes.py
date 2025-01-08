@@ -3,7 +3,6 @@ from .utils import save_uploaded_file
 from .model_handlers import predict_2d_image, predict_3d_image, predict_audio
 import base64
 import numpy as np
-# import tensorflow as tf
 from PIL import Image
 from io import BytesIO
 from transformers import pipeline
@@ -12,7 +11,14 @@ from transformers import pipeline
 import spacy
 import re
 from collections import Counter
+import os
+from werkzeug.utils import secure_filename
+import tempfile
+import logging
 
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)  # This will create a logger specific to this file
 main_routes = Blueprint('main_routes', __name__)
 
 @main_routes.route('/predict-2d-image', methods=['POST'])
@@ -24,10 +30,45 @@ def predict_2d():
 
 @main_routes.route('/predict-3d-image', methods=['POST'])
 def predict_3d():
-    image_file = request.files['image']
-    file_path = save_uploaded_file(image_file)
-    result = predict_3d_image(file_path)
-    return jsonify({'result': result})
+    logger.debug("Received predict-3d-image request")
+    try:
+        # Check if file was uploaded
+        if 'image' not in request.files:
+            logger.error("No file uploaded")
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        image_file = request.files['image']
+        logger.debug(f"Received file: {image_file.filename}")
+
+        # Check if file was selected
+        if image_file.filename == '':
+            logger.error("No file selected")
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Verify file type
+        if not image_file.filename.endswith(('.nii', '.nii.gz')):
+            logger.error(f"Invalid file type: {image_file.filename}")
+            return jsonify({'error': 'Invalid file type. Please upload a .nii or .nii.gz file'}), 400
+
+        # Create temporary directory and save file
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger.debug(f"Created temporary directory: {temp_dir}")
+            filename = secure_filename(image_file.filename)
+            file_path = os.path.join(temp_dir, filename)
+
+            # Save uploaded file
+            image_file.save(file_path)
+            logger.debug(f"Saved uploaded file to: {file_path}")
+
+            # Process the image and get prediction
+            result = predict_3d_image(file_path)
+            logger.debug(f"Prediction complete: {result}")
+
+            return jsonify({'result': result})
+
+    except Exception as e:
+        logger.error(f"Server error in predict_3d route: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @main_routes.route('/predict-audio', methods=['POST'])
 def predict_audio_route():
