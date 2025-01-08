@@ -8,9 +8,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU usage
 
 
 # Load models at the start
-model_2d = load_model('/home/osama/AlzieDet/App/app/models/dummy_model.keras')
-model_3d = load_model('/home/osama/AlzieDet/App/app/models/dummy_model.keras')
-model_audio = load_model('/home/osama/AlzieDet/App/app/models/dummy_model.keras')
+model_2d = load_model('app/models/dummy_model.keras')
+model_3d = load_model('app/models/dummy_model.keras')
+model_audio = load_model('app/models/dummy_model.keras')
 
 def predict_2d_image(file_path):
     # Add preprocessing logic for 2D images here
