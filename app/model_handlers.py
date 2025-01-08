@@ -160,19 +160,21 @@ class ModelHandler:
 
     def prepare_for_prediction(self, file_path):
         try:
-            # Create a temporary file to store the processed image
-            with tempfile.NamedTemporaryFile(suffix=".nii") as temp_file:
+            temp_file = tempfile.NamedTemporaryFile(suffix=".nii", delete=False)
+            try:
                 processed_path = self.process_single_mri(file_path, temp_file.name)
-
                 # Load the processed image
                 img = nib.load(processed_path)
                 volume = img.get_fdata()
                 volume = tf.convert_to_tensor(volume, dtype=tf.float32)
                 volume = self.resize_volume(volume)
                 volume = self.normalize_volume(volume)
-                volume = tf.expand_dims(volume, axis=-1)  # Add batch dimension
-                volume.set_shape([*self.target_shape, 1])
-            return volume
+                volume = tf.expand_dims(volume, axis=-1)
+                volume = tf.expand_dims(volume, axis=0)  # Add batch dimension
+                return volume
+            finally:
+                temp_file.close()
+                os.unlink(temp_file.name)  # Clean up the temporary file
         except Exception as e:
             logger.error(f"Error in prepare_for_prediction: {str(e)}")
             raise
@@ -183,7 +185,7 @@ class ModelHandler:
             # Prepare image for prediction
             prepared_image = self.prepare_for_prediction(file_path)
             prediction = self.model.predict(prepared_image, verbose=0)
-            class_names = ['AD', 'MCI', 'CN']
+            class_names = ['AD', 'CN', 'MCI']
             predicted_class = class_names[np.argmax(prediction[0])]
             probabilities = {class_names[i]: float(pred) for i, pred in enumerate(prediction[0])}
             return {'predicted_class': predicted_class, 'probabilities': probabilities}
@@ -191,21 +193,6 @@ class ModelHandler:
             logger.error(f"Error in predict_3d_image: {str(e)}")
             raise
 
-# Wrapper function
-def predict_3d_image(file_path):
-    logger.debug(f"Called predict_3d_image with file_path: {file_path}")
-    try:
-        model_handler = ModelHandler(
-            weights_path='app/models/best_model.h5',
-            mni_template_path='app/models/mni_icbm152_t1_tal_nlin_sym_09c.nii',
-            target_shape=(128, 128, 128)
-        )
-        prediction = model_handler.predict_3d_image(file_path)
-        logger.debug(f"Prediction successful: {prediction}")
-        return prediction
-    except Exception as e:
-        logger.error(f"Error in predict_3d_image wrapper: {str(e)}")
-        raise
 
 
 # Wrapper function
