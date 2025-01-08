@@ -16,78 +16,57 @@ import keras
 from keras import layers
 from keras.layers import (
     Conv3D, BatchNormalization, Activation, Dense, GlobalAveragePooling3D,
-    Input, Dropout, Add, multiply
+    Input, Dropout, Add, multiply, Lambda
 )
+import tensorflow as tf
+from tensorflow import keras
+import os
+import tempfile
+import nibabel as nib
+import antspynet
+import numpy as np
 import logging
-
-# Set up logging
+import os
+import logging
+import tempfile
+import numpy as np
+import nibabel as nib
+import ants
+import antspynet
+import tensorflow as tf
+from tensorflow.keras import layers
+from tensorflow.keras.models import load_model
+from .model_builder import create_model
+# Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-def create_se_block(inputs, filters, reduction_ratio=4):
-    """Squeeze-and-Excitation block adapted for 3D"""
-    se = GlobalAveragePooling3D()(inputs)
-    se = Dense(filters // reduction_ratio, activation='swish')(se)
-    se = Dense(filters, activation='sigmoid')(se)
-    se = tf.reshape(se, [-1, 1, 1, 1, filters])
-    return multiply([inputs, se])
 
-def create_mbconv_block(inputs, filters, kernel_size=(3, 3, 3), strides=(1, 1, 1),
-                        expansion_factor=6, se_ratio=4, dropout_rate=0.3):
-    """Enhanced MBConv block with Squeeze-and-Excitation"""
-    input_filters = inputs.shape[-1]
-    expanded_filters = input_filters * expansion_factor
+# ModelHandler class for processing and predicting
+import os
+import logging
+import tempfile
+import numpy as np
+import nibabel as nib
+import ants
+import antspynet
+import tensorflow as tf
+from tensorflow.keras import layers
+from tensorflow.keras.models import load_model
 
-    # Expansion phase
-    if expansion_factor != 1:
-        x = Conv3D(expanded_filters, (1, 1, 1), padding="same", use_bias=False)(inputs)
-        x = BatchNormalization(momentum=0.9)(x)
-        x = Activation('swish')(x)
-    else:
-        x = inputs
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-    # Depthwise convolution
-    x = Conv3D(expanded_filters, kernel_size, strides=strides,
-               padding="same", groups=expanded_filters, use_bias=False)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    x = Activation('swish')(x)
-
-    # Squeeze-and-Excitation
-    x = create_se_block(x, expanded_filters, se_ratio)
-
-    # Projection phase
-    x = Conv3D(filters, (1, 1, 1), padding="same", use_bias=False)(x)
-    x = BatchNormalization(momentum=0.9)(x)
-
-    # Skip connection
-    if strides == (1, 1, 1) and input_filters == filters:
-        if dropout_rate > 0:
-            x = Dropout(dropout_rate)(x)
-        x = Add()([x, inputs])
-
-    return x
-
-
-
+# ModelHandler class for processing and predicting
 class ModelHandler:
-    def __init__(self, model_path, mni_template_path, target_shape=(128, 128, 128)):
-        logger.debug(f"Initializing ModelHandler with model_path={model_path}, template_path={mni_template_path}")
+    def __init__(self, weights_path, mni_template_path, target_shape=(128, 128, 128)):
+        logger.debug(f"Initializing ModelHandler with weights_path={weights_path}, template_path={mni_template_path}")
         try:
-            # Define custom objects
-            custom_objects = {
-                'create_se_block': create_se_block,
-                'create_mbconv_block': create_mbconv_block,
-                'swish': tf.keras.activations.swish,
-                'AdamW': tf.keras.optimizers.AdamW
-            }
+            # Rebuild the model architecture and load weights
+            self.model = self.build_model()
+            self.model.load_weights(weights_path)
+            logger.debug("Model architecture rebuilt and weights loaded successfully")
 
-            # Load model with custom objects
-            self.model = keras.models.load_model(
-                model_path,
-                custom_objects=custom_objects
-            )
-            logger.debug("Model loaded successfully")
-
-            # Verify template path exists
             if not os.path.exists(mni_template_path):
                 raise FileNotFoundError(f"MNI template not found at: {mni_template_path}")
 
@@ -98,14 +77,41 @@ class ModelHandler:
             logger.error(f"Error in ModelHandler initialization: {str(e)}")
             raise
 
+    def build_model(self):
+        return create_model()
+
+    def normalize_volume(self, volume):
+        """Normalize the volume to zero mean and unit variance"""
+        mean = tf.reduce_mean(volume)
+        variance = tf.reduce_mean(tf.square(volume - mean))
+        std = tf.sqrt(variance)
+        return tf.cond(
+            tf.equal(std, 0),
+            lambda: volume - mean,
+            lambda: (volume - mean) / std
+        )
+
+    def resize_volume(self, volume):
+        """Resize volume to target shape using tf.image operations"""
+        # Ensure input is 3D
+        if len(volume.shape) == 4:
+            volume = tf.squeeze(volume, axis=0)
+
+        # Resize if needed
+        if volume.shape != self.target_shape:
+            volume = tf.expand_dims(volume, axis=0)
+            volume = tf.image.resize(volume, self.target_shape[:2])
+            volume = tf.transpose(volume, [0, 3, 2, 1])
+            volume = tf.image.resize(volume, self.target_shape[:2])
+            volume = tf.transpose(volume, [0, 3, 2, 1])
+            volume = tf.squeeze(volume, axis=0)
+
+        return volume
+
     def process_single_mri(self, input_path, output_path):
         """Process a single MRI image using ANTS"""
         try:
             logger.debug(f"Starting MRI processing for file: {input_path}")
-
-            # Verify input file exists
-            if not os.path.exists(input_path):
-                raise FileNotFoundError(f"Input file not found: {input_path}")
 
             logger.debug("Loading images...")
             moving_image = ants.image_read(input_path)
@@ -146,64 +152,51 @@ class ModelHandler:
 
             logger.debug(f"Saving result to {output_path}")
             ants.image_write(final_image, output_path)
-
-            # Verify output was created
-            if not os.path.exists(output_path):
-                raise FileNotFoundError(f"Failed to create output file: {output_path}")
-
             return output_path
 
         except Exception as e:
             logger.error(f"Error in process_single_mri: {str(e)}")
             raise
 
-    def predict_3d_image(self, file_path):
-        """Process and predict on a 3D MRI image"""
+    def prepare_for_prediction(self, file_path):
         try:
-            logger.debug(f"Starting prediction pipeline for file: {file_path}")
+            # Create a temporary file to store the processed image
+            with tempfile.NamedTemporaryFile(suffix=".nii") as temp_file:
+                processed_path = self.process_single_mri(file_path, temp_file.name)
 
-            # Create a temporary directory for processed image
-            with tempfile.TemporaryDirectory() as temp_dir:
-                logger.debug(f"Created temporary directory: {temp_dir}")
-                processed_path = os.path.join(temp_dir, 'processed_mri.nii.gz')
-
-                # Process the MRI using ANTS
-                logger.debug("Starting MRI processing...")
-                processed_path = self.process_single_mri(file_path, processed_path)
-                logger.debug("MRI processing completed")
-
-                # Prepare for prediction
-                logger.debug("Preparing image for prediction...")
-                prepared_image = self.prepare_for_prediction(processed_path)
-                logger.debug(f"Prepared image shape: {prepared_image.shape}")
-
-                # Make prediction
-                logger.debug("Making prediction...")
-                prediction = self.model.predict(prepared_image)
-                logger.debug(f"Raw prediction: {prediction}")
-
-                # Convert prediction to class label
-                class_names = ['AD', 'MCI', 'CN']
-                predicted_class = class_names[np.argmax(prediction[0])]
-                probabilities = {class_names[i]: float(pred) for i, pred in enumerate(prediction[0])}
-
-                logger.debug(f"Predicted class: {predicted_class}")
-                logger.debug(f"Probabilities: {probabilities}")
-
-                return {
-                    'predicted_class': predicted_class,
-                    'probabilities': probabilities
-                }
-
+                # Load the processed image
+                img = nib.load(processed_path)
+                volume = img.get_fdata()
+                volume = tf.convert_to_tensor(volume, dtype=tf.float32)
+                volume = self.resize_volume(volume)
+                volume = self.normalize_volume(volume)
+                volume = tf.expand_dims(volume, axis=-1)  # Add batch dimension
+                volume.set_shape([*self.target_shape, 1])
+            return volume
         except Exception as e:
-            logger.error(f"Error in prediction pipeline: {str(e)}")
+            logger.error(f"Error in prepare_for_prediction: {str(e)}")
             raise
 
+
+    def predict_3d_image(self, file_path):
+        try:
+            # Prepare image for prediction
+            prepared_image = self.prepare_for_prediction(file_path)
+            prediction = self.model.predict(prepared_image, verbose=0)
+            class_names = ['AD', 'MCI', 'CN']
+            predicted_class = class_names[np.argmax(prediction[0])]
+            probabilities = {class_names[i]: float(pred) for i, pred in enumerate(prediction[0])}
+            return {'predicted_class': predicted_class, 'probabilities': probabilities}
+        except Exception as e:
+            logger.error(f"Error in predict_3d_image: {str(e)}")
+            raise
+
+# Wrapper function
 def predict_3d_image(file_path):
     logger.debug(f"Called predict_3d_image with file_path: {file_path}")
     try:
         model_handler = ModelHandler(
-            model_path='app/models/Best-3D-Model.h5',
+            weights_path='app/models/best_model.h5',
             mni_template_path='app/models/mni_icbm152_t1_tal_nlin_sym_09c.nii',
             target_shape=(128, 128, 128)
         )
@@ -214,17 +207,27 @@ def predict_3d_image(file_path):
         logger.error(f"Error in predict_3d_image wrapper: {str(e)}")
         raise
 
+
+# Wrapper function
+def predict_3d_image(file_path):
+    logger.debug(f"Called predict_3d_image with file_path: {file_path}")
+    try:
+        model_handler = ModelHandler(
+            weights_path='app/models/Best-3D-Model.h5',
+            mni_template_path='app/models/mni_icbm152_t1_tal_nlin_sym_09c.nii',
+            target_shape=(128, 128, 128)
+        )
+        prediction = model_handler.predict_3d_image(file_path)
+        logger.debug(f"Prediction successful: {prediction}")
+        return prediction
+    except Exception as e:
+        logger.error(f"Error in predict_3d_image wrapper: {str(e)}")
+        raise
+
+
 # model_audio = load_model('app/models/dummy_model.keras')
 
 
-def predict_3d_image(file_path):
-    model_handler = ModelHandler(
-        model_path='app/models/Best-3D-Model.h5',
-        mni_template_path='app/models/mni_icbm152_t1_tal_nlin_sym_09c.nii',  # Adjust path as needed
-        target_shape=(128, 128, 128)
-    )
-    prediction = model_handler.predict_3d_image(file_path)
-    return prediction
 
 def predict_2d_image(file_path):
     # Add preprocessing logic for 2D images here
