@@ -52,12 +52,15 @@ import antspynet
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.models import load_model
-
+import shutil
+import dicom2nifti
+from pathlib import Path
+import pydicom
+from collections import defaultdict
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# ModelHandler class for processing and predicting
 class ModelHandler:
     def __init__(self, weights_path, mni_template_path, target_shape=(128, 128, 128)):
         logger.debug(f"Initializing ModelHandler with weights_path={weights_path}, template_path={mni_template_path}")
@@ -79,6 +82,133 @@ class ModelHandler:
 
     def build_model(self):
         return create_model()
+
+    def organize_dicom_series(self, dicom_path):
+        """
+        Organize DICOM files into series, handling multiple files properly.
+
+        Args:
+            dicom_path: Path to directory containing DICOM files
+
+        Returns:
+            Dictionary mapping series UIDs to lists of sorted DICOM files
+        """
+        logger.debug(f"Organizing DICOM series from: {dicom_path}")
+        series_dict = defaultdict(list)
+
+        # Handle both single file and directory cases
+        if os.path.isfile(dicom_path):
+            dicom_files = [dicom_path]
+        else:
+            dicom_files = [os.path.join(dicom_path, f) for f in os.listdir(dicom_path)
+                           if f.lower().endswith(('.dcm', '.dicom'))]
+
+        for file_path in dicom_files:
+            try:
+                dcm = pydicom.dcmread(file_path)
+                # Group by SeriesInstanceUID
+                series_dict[dcm.SeriesInstanceUID].append((file_path, dcm))
+            except Exception as e:
+                logger.warning(f"Skipping invalid DICOM file {file_path}: {str(e)}")
+
+        # Sort each series by slice location or instance number
+        for series_uid in series_dict:
+            series_dict[series_uid].sort(
+                key=lambda x: (getattr(x[1], 'SliceLocation', 0),
+                               getattr(x[1], 'InstanceNumber', 0))
+            )
+
+        return series_dict
+
+    def convert_dicom_to_nifti(self, dicom_path):
+        """
+        Convert organized DICOM series to NIfTI format with preprocessing.
+
+        Args:
+            dicom_path: Path to DICOM file or directory containing DICOM files
+
+        Returns:
+            Path to the converted and preprocessed NIfTI file
+        """
+        try:
+            logger.debug(f"Starting DICOM to NIfTI conversion from: {dicom_path}")
+
+            # Create temporary directory for processing
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Organize DICOM files into series
+                series_dict = self.organize_dicom_series(dicom_path)
+
+                if not series_dict:
+                    raise ValueError("No valid DICOM series found")
+
+                # Process each series (usually there should be one T1 series)
+                for series_uid, dicom_files in series_dict.items():
+                    # Create a subdirectory for this series
+                    series_dir = os.path.join(temp_dir, f"series_{series_uid}")
+                    os.makedirs(series_dir)
+
+                    # Copy DICOM files to the series directory
+                    for file_path, _ in dicom_files:
+                        shutil.copy2(file_path, series_dir)
+
+                    # Convert to NIfTI
+                    nifti_output = os.path.join(temp_dir, f"converted_{series_uid}.nii.gz")
+                    dicom2nifti.convert_directory(
+                        series_dir,
+                        temp_dir,
+                        compression=True,
+                        reorient=True  # Ensure proper orientation
+                    )
+
+                # Find the converted file(s)
+                nifti_files = list(Path(temp_dir).glob("*.nii.gz"))
+                if not nifti_files:
+                    raise ValueError("No NIfTI file was created during conversion")
+
+                # If multiple series were converted, use the largest one (assuming it's the full brain T1)
+                nifti_file = max(nifti_files, key=lambda f: os.path.getsize(f))
+
+                # Create a new temporary file for the final result
+                final_output = tempfile.NamedTemporaryFile(suffix=".nii.gz", delete=False)
+                shutil.copy2(str(nifti_file), final_output.name)
+
+                logger.debug(f"DICOM conversion successful, saved to: {final_output.name}")
+                return final_output.name
+
+        except Exception as e:
+            logger.error(f"Error in DICOM to NIfTI conversion: {str(e)}")
+            raise
+
+    def predict_from_dicom(self, dicom_path):
+        """
+        Predict directly from DICOM file(s), including preprocessing
+
+        Args:
+            dicom_path: Path to DICOM file or directory containing DICOM files
+
+        Returns:
+            Dictionary containing prediction results
+        """
+        try:
+            logger.debug(f"Starting prediction from DICOM: {dicom_path}")
+
+            # Convert DICOM to NIfTI
+            nifti_path = self.convert_dicom_to_nifti(dicom_path)
+
+            try:
+                # Process the NIfTI file (registration, brain extraction, etc.)
+                processed_path = self.process_single_mri(nifti_path, nifti_path)
+
+                # Use existing prediction pipeline
+                return self.predict_3d_image(processed_path)
+            finally:
+                # Clean up temporary files
+                if os.path.exists(nifti_path):
+                    os.unlink(nifti_path)
+
+        except Exception as e:
+            logger.error(f"Error in predict_from_dicom: {str(e)}")
+            raise
 
     def normalize_volume(self, volume):
         """Normalize the volume to zero mean and unit variance"""
@@ -204,7 +334,15 @@ def predict_3d_image(file_path):
             mni_template_path='app/models/mni_icbm152_t1_tal_nlin_sym_09c.nii',
             target_shape=(128, 128, 128)
         )
-        prediction = model_handler.predict_3d_image(file_path)
+
+        # Check if input is DICOM
+        if file_path.lower().endswith(('.dcm', '.dicom')) or (
+                os.path.isdir(file_path) and any(f.lower().endswith(('.dcm', '.dicom'))
+                                                 for f in os.listdir(file_path))):
+            prediction = model_handler.predict_from_dicom(file_path)
+        else:
+            prediction = model_handler.predict_3d_image(file_path)
+
         logger.debug(f"Prediction successful: {prediction}")
         return prediction
     except Exception as e:
