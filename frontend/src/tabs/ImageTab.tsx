@@ -1,11 +1,20 @@
 import React, { useState } from 'react';
 import { Box, Typography, Button, TextField, Card, CardContent, CardMedia, CircularProgress, Alert } from '@mui/material';
 
+interface PredictionResult {
+    result: {
+        predicted_class: string;
+        probabilities: {
+            [key: string]: number;
+        };
+    };
+}
+
 const ImageTab = () => {
     const [imageType, setImageType] = useState<'2d' | '3d' | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [result, setResult] = useState<string | null>(null);
+    const [result, setResult] = useState<PredictionResult | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,16 +45,13 @@ const ImageTab = () => {
                     }
 
                     const data = await response.json();
-                    setResult(data.result);
-
+                    setResult(data);
                 } else if (imageType === '3d') {
-                    // Verify file type for 3D
                     if (!file.name.endsWith('.nii') && !file.name.endsWith('.nii.gz')) {
                         throw new Error('Please upload a valid NIfTI file (.nii or .nii.gz)');
                     }
 
-                    // Send to backend
-                    const response = await fetch('http://127.0.0.1:5000//predict-3d-image', {
+                    const response = await fetch('http://127.0.0.1:5000/predict-3d-image', {
                         method: 'POST',
                         body: formData
                     });
@@ -55,7 +61,7 @@ const ImageTab = () => {
                     }
 
                     const data = await response.json();
-                    setResult(data.result);
+                    setResult(data);
                 }
             }
         } catch (err) {
@@ -64,6 +70,60 @@ const ImageTab = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const getRecommendation = (predictedClass: string) => {
+        switch (predictedClass) {
+            case 'CN':
+                return "Based on the analysis, your brain scan appears normal. Continue maintaining a healthy lifestyle with regular exercise and cognitive activities.";
+            case 'MCI':
+                return "The scan indicates mild cognitive impairment. We recommend scheduling a follow-up with a neurologist for a comprehensive evaluation and discussing potential interventions.";
+            case 'AD':
+                return "The scan suggests patterns consistent with Alzheimer's Disease. Please consult with a neurologist as soon as possible to discuss treatment options and support services.";
+            default:
+                return "Please consult with your healthcare provider to discuss these results in detail.";
+        }
+    };
+
+    const renderPredictionResult = (result: PredictionResult) => {
+        const confidenceLevel = result.result.probabilities[result.result.predicted_class] * 100;
+
+        return (
+            <Card sx={{ mt: 4, maxWidth: 800, mx: 'auto', p: 3 }}>
+                <Typography variant="h5" gutterBottom color="primary">
+                    Analysis Results
+                </Typography>
+
+                <Typography variant="body1" sx={{ mt: 2, mb: 3 }}>
+                    Dear Patient,
+                </Typography>
+
+                <Typography variant="body1" paragraph>
+                    We have analyzed your brain scan using our advanced AI system.
+                    The analysis was completed with {confidenceLevel.toFixed(1)}% confidence.
+                </Typography>
+
+                <Typography variant="body1" paragraph>
+                    {getRecommendation(result.result.predicted_class)}
+                </Typography>
+
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+                    <Typography variant="subtitle1" gutterBottom>
+                        Detailed Analysis:
+                    </Typography>
+                    {Object.entries(result.result.probabilities).map(([className, probability]) => (
+                        <Typography key={className} variant="body2" sx={{ my: 1 }}>
+                            {className}: {(probability * 100).toFixed(1)}%
+                        </Typography>
+                    ))}
+                </Box>
+
+                <Typography variant="body2" sx={{ mt: 3, color: 'text.secondary', fontStyle: 'italic' }}>
+                    Note: This is an AI-assisted analysis and should not be considered as a final diagnosis.
+                    Please consult with a qualified healthcare professional for proper medical evaluation and diagnosis.
+                </Typography>
+            </Card>
+        );
     };
 
     return (
@@ -128,11 +188,7 @@ const ImageTab = () => {
                         </Alert>
                     )}
 
-                    {result && (
-                        <Alert severity="success" sx={{ mt: 2 }}>
-                            Prediction Result: {result}
-                        </Alert>
-                    )}
+                    {result && renderPredictionResult(result)}
 
                     {imageType === '2d' && imagePreview && (
                         <Card sx={{ mt: 4, maxWidth: 600, mx: 'auto' }}>
