@@ -57,6 +57,8 @@ import dicom2nifti
 from pathlib import Path
 import pydicom
 from collections import defaultdict
+from dicom2nifti.exceptions import ConversionValidationError, ConversionError
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -122,55 +124,45 @@ class ModelHandler:
 
     def convert_dicom_to_nifti(self, dicom_path):
         """
-        Convert organized DICOM series to NIfTI format with preprocessing.
+        Convert DICOM files to NIfTI format.
 
         Args:
             dicom_path: Path to DICOM file or directory containing DICOM files
 
         Returns:
-            Path to the converted and preprocessed NIfTI file
+            Path to the converted NIfTI file
         """
         try:
             logger.debug(f"Starting DICOM to NIfTI conversion from: {dicom_path}")
 
-            # Create temporary directory for processing
+            # Create temporary directories for processing
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Organize DICOM files into series
-                series_dict = self.organize_dicom_series(dicom_path)
+                nifti_output = os.path.join(temp_dir, "converted.nii.gz")
 
-                if not series_dict:
-                    raise ValueError("No valid DICOM series found")
+                # Handle both single file and directory cases
+                if os.path.isfile(dicom_path):
+                    dicom_dir = os.path.join(temp_dir, "dicom")
+                    os.makedirs(dicom_dir)
+                    shutil.copy2(dicom_path, dicom_dir)
+                    input_path = dicom_dir
+                else:
+                    input_path = dicom_path
 
-                # Process each series (usually there should be one T1 series)
-                for series_uid, dicom_files in series_dict.items():
-                    # Create a subdirectory for this series
-                    series_dir = os.path.join(temp_dir, f"series_{series_uid}")
-                    os.makedirs(series_dir)
+                try:
+                    # Perform the conversion
+                    dicom2nifti.convert_directory(input_path, temp_dir, compression=True)
+                except ConversionValidationError as e:
+                    logger.error(f"DICOM conversion validation error: {str(e)}")
+                    raise ConversionError("The uploaded DICOM files appear to be incomplete or inconsistent. Please ensure you're uploading all slices from the same series.")
 
-                    # Copy DICOM files to the series directory
-                    for file_path, _ in dicom_files:
-                        shutil.copy2(file_path, series_dir)
-
-                    # Convert to NIfTI
-                    nifti_output = os.path.join(temp_dir, f"converted_{series_uid}.nii.gz")
-                    dicom2nifti.convert_directory(
-                        series_dir,
-                        temp_dir,
-                        compression=True,
-                        reorient=True  # Ensure proper orientation
-                    )
-
-                # Find the converted file(s)
+                # Find the converted file
                 nifti_files = list(Path(temp_dir).glob("*.nii.gz"))
                 if not nifti_files:
-                    raise ValueError("No NIfTI file was created during conversion")
-
-                # If multiple series were converted, use the largest one (assuming it's the full brain T1)
-                nifti_file = max(nifti_files, key=lambda f: os.path.getsize(f))
+                    raise ConversionError("Unable to convert DICOM files. Please ensure you're uploading a complete set of DICOM files from the same MRI series.")
 
                 # Create a new temporary file for the final result
                 final_output = tempfile.NamedTemporaryFile(suffix=".nii.gz", delete=False)
-                shutil.copy2(str(nifti_file), final_output.name)
+                shutil.copy2(str(nifti_files[0]), final_output.name)
 
                 logger.debug(f"DICOM conversion successful, saved to: {final_output.name}")
                 return final_output.name

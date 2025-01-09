@@ -1,3 +1,4 @@
+from dicom2nifti.exceptions import ConversionValidationError
 from flask import Blueprint, request, jsonify
 from .utils import save_uploaded_file
 from .model_handlers import predict_2d_image, predict_3d_image, predict_audio
@@ -15,7 +16,8 @@ import os
 from werkzeug.utils import secure_filename
 import tempfile
 import logging
-
+class ConversionError(Exception):
+    pass
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)  # This will create a logger specific to this file
@@ -92,11 +94,22 @@ def predict_3d():
                     dicom_file.save(file_path)
                     logger.debug(f"Saved DICOM file to: {file_path}")
 
-                # Process the DICOM directory and get prediction
-                result = predict_3d_image(dicom_dir)
-                logger.debug(f"Prediction complete: {result}")
+                try:
+                    # Process the DICOM directory and get prediction
+                    result = predict_3d_image(dicom_dir)
+                    logger.debug(f"Prediction complete: {result}")
+                    return jsonify({'result': result})
 
-                return jsonify({'result': result})
+                except ConversionValidationError as e:
+                    error_message = "The uploaded DICOM files appear to be incomplete or inconsistent. Please ensure you're uploading all slices from the same series in the correct sequence. A complete brain MRI series typically contains consecutive slices with consistent spacing."
+                    logger.error(f"DICOM conversion error: {error_message}")
+                    return jsonify({'error': error_message}), 400
+                except Exception as e:
+                    if "No NIfTI file was created during conversion" in str(e):
+                        error_message = "Unable to convert DICOM files. Please ensure you're uploading a complete set of DICOM files from the same MRI series. All slices should be from the same scan sequence."
+                        logger.error(f"DICOM conversion error: {error_message}")
+                        return jsonify({'error': error_message}), 400
+                    raise
 
         else:
             logger.error("No files found in request")
@@ -104,7 +117,7 @@ def predict_3d():
 
     except Exception as e:
         logger.error(f"Server error in predict_3d route: {str(e)}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @main_routes.route('/predict-audio', methods=['POST'])
 def predict_audio_route():
