@@ -1,47 +1,5 @@
-import keras
-from tensorflow.keras.models import load_model
-
-import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU usage
-
-import ants
-import antspynet
-import numpy as np
-# from tensorflow import keras
-import os
-import tempfile
-import nibabel as nib
-import tensorflow as tf
-import keras
-from keras import layers
-from keras.layers import (
-    Conv3D, BatchNormalization, Activation, Dense, GlobalAveragePooling3D,
-    Input, Dropout, Add, multiply, Lambda
-)
-import tensorflow as tf
-from tensorflow import keras
-import os
-import tempfile
-import nibabel as nib
-import antspynet
-import numpy as np
 import logging
-import os
-import logging
-import tempfile
-import numpy as np
-import nibabel as nib
-import ants
-import antspynet
-import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras.models import load_model
 from .model_builder import create_model
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
-# ModelHandler class for processing and predicting
 import os
 import logging
 import tempfile
@@ -50,14 +8,45 @@ import nibabel as nib
 import ants
 import antspynet
 import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras.models import load_model
 import shutil
 import dicom2nifti
 from pathlib import Path
 import pydicom
 from collections import defaultdict
 from dicom2nifti.exceptions import ConversionValidationError, ConversionError
+import os
+import pandas as pd
+import librosa
+import numpy as np
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.impute import SimpleImputer
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Conv1D, Flatten, Dropout, MaxPooling1D, BatchNormalization
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
+import keras_tuner as kt
+from tensorflow.keras.models import load_model
+import logging
+from pydub import AudioSegment
+from scipy.stats import pearsonr
+import random
+import matplotlib.pyplot as plt
+import noisereduce as nr
+import soundfile as sf  # For writing audio files
+from scipy.signal import butter, sosfilt
+from sklearn.model_selection import StratifiedKFold
+from tensorflow.keras import Input
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import classification_report
+from sklearn.metrics import precision_recall_curve, average_precision_score
+from sklearn.preprocessing import label_binarize
+import joblib
+
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -341,22 +330,278 @@ def predict_3d_image(file_path):
         logger.error(f"Error in predict_3d_image wrapper: {str(e)}")
         raise
 
+#############################################################################
+# AUDIO SECTION
+def butter_bandpass(lowcut, highcut, sr, order=4):
+    """
+    Creates a Butterworth bandpass filter using second-order sections (SOS).
+    """
+    nyquist = 0.5 * sr
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    sos = butter(order, [low, high], btype='band', output='sos')
+    return sos
 
-# model_audio = load_model('app/models/dummy_model.keras')
+def bandpass_filter(audio, sr, lowcut=300.0, highcut=4000.0, order=6):
+    """
+    Applies a Butterworth bandpass filter to the audio signal.
+    """
+    sos = butter_bandpass(lowcut, highcut, sr, order=order)
+    filtered_audio = sosfilt(sos, audio)
+    return filtered_audio
+
+def reduce_noise_in_audio(audio, sr, noise_duration=0.5 ,prop_decrease = 0.9 ):
+    noise_profile = audio[: int(sr * noise_duration)]  # first 0.5s as noise sample
+    reduced_audio = nr.reduce_noise(y=audio, sr=sr, y_noise=noise_profile,prop_decrease = 0.9)
+    return reduced_audio
 
 
+def normalize_audio(audio):
+    """
+    Peak normalization to ensure max amplitude = 1.0
+    """
+    max_val = np.max(np.abs(audio))
+    if max_val > 0:
+        audio = audio / max_val
+    return audio
 
-def predict_2d_image(file_path):
-    # Add preprocessing logic for 2D images here
-    # Example:
-    # image_data = preprocess_2d_image(file_path)
-    # prediction = model_2d.predict(image_data)
-    prediction = "Mock prediction for 2D image"  # Replace with real prediction
-    return prediction
-def predict_audio(file_path):
-    # Add preprocessing logic for audio files here
-    # Example:
-    # audio_data = preprocess_audio(file_path)
-    # prediction = model_audio.predict(audio_data)
-    prediction = "Mock prediction for audio"  # Replace with real prediction
-    return prediction
+    return audio
+
+
+def preprocess_audio(file_path, sr = 16000 , lowcut = 300 , highcut = 4000 , order = 6 , noise_duration = 0.3 , prop_decrease = 0.9):
+
+    audio, sr = librosa.load(file_path, sr=sr)
+    audio = bandpass_filter(audio, sr, lowcut=lowcut, highcut=highcut, order=order)
+    audio = reduce_noise_in_audio(audio, sr, noise_duration=noise_duration , prop_decrease = prop_decrease)
+    audio = normalize_audio(audio)
+
+    return audio, sr
+
+def extract_audio_features(audio, sr=16000):
+    """
+    Extract multiple audio features from an audio signal (numpy array).
+
+    Parameters:
+    - audio (numpy.ndarray): The audio signal.
+    - sr (int): Sample rate of the audio signal.
+
+    Returns:
+    - combined_features (numpy.ndarray): Combined features extracted from the audio.
+    """
+    try:
+        features = {}
+
+        # MFCCs
+        mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
+        features['mfcc_mean'] = np.mean(mfccs, axis=1)
+        features['mfcc_std'] = np.std(mfccs, axis=1)
+
+        # Mel-Spectrogram
+        mel_spectrogram = librosa.feature.melspectrogram(y=audio, sr=sr, n_mels=128)
+        features['mel_mean'] = np.mean(mel_spectrogram, axis=1)
+        features['mel_std'] = np.std(mel_spectrogram, axis=1)
+
+        # Spectral Features
+        features['spectral_centroid'] = np.mean(librosa.feature.spectral_centroid(y=audio, sr=sr))
+        features['spectral_rolloff'] = np.mean(librosa.feature.spectral_rolloff(y=audio, sr=sr))
+        features['spectral_bandwidth'] = np.mean(librosa.feature.spectral_bandwidth(y=audio, sr=sr))
+        features['spectral_flatness'] = np.mean(librosa.feature.spectral_flatness(y=audio))
+        features['spectral_contrast'] = np.mean(librosa.feature.spectral_contrast(S=np.abs(librosa.stft(audio)), sr=sr))
+
+        # Temporal Features
+        tempo, _ = librosa.beat.beat_track(y=audio, sr=sr)
+        features['tempo'] = tempo
+        onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
+        features['onset_strength_mean'] = np.mean(onset_env)
+
+        # Energy-Based Features
+        rmse = librosa.feature.rms(y=audio)
+        features['rms_mean'] = np.mean(rmse)
+        features['rms_std'] = np.std(rmse)
+
+        energy_entropy = -np.sum(rmse * np.log(rmse + 1e-6))
+        features['energy_entropy'] = energy_entropy
+
+        # Spectral Flux
+        spectral_flux = np.mean(librosa.onset.onset_strength(y=audio, sr=sr, lag=1))
+        features['spectral_flux'] = spectral_flux
+
+        # Spectral Variance
+        features['spectral_variance'] = np.var(librosa.feature.spectral_centroid(y=audio, sr=sr))
+
+        # Zero Crossing Rate
+        features['zero_crossing_rate'] = np.mean(librosa.feature.zero_crossing_rate(y=audio))
+
+        # RMS Energy
+        features['rms'] = np.mean(librosa.feature.rms(y=audio))
+
+        # Chroma Features
+        chroma = librosa.feature.chroma_stft(y=audio, sr=sr)
+        features['chroma_mean'] = np.mean(chroma, axis=1)
+
+        # Linguistic Features: Pitch
+        pitches, magnitudes = librosa.piptrack(y=audio, sr=sr)
+        pitch_values = pitches[pitches > 0]
+        features['mean_pitch'] = pitch_values.mean() if len(pitch_values) > 0 else 0
+        features['stdev_pitch'] = pitch_values.std() if len(pitch_values) > 0 else 0
+
+        # Speaking rate
+        non_silent_intervals = librosa.effects.split(audio, top_db=10)
+        duration = sum((end - start) for start, end in non_silent_intervals) / sr
+        speaking_rate = len(non_silent_intervals) / duration
+        features['speaking_rate'] = speaking_rate
+
+        # Pause duration
+        total_pause_duration = (len(audio) - sum((end - start) for start, end in non_silent_intervals)) / sr
+        features['pause_duration'] = total_pause_duration
+
+        # Combine all features into a single array
+        combined_features = np.concatenate([
+            features[key] if isinstance(features[key], np.ndarray) else [features[key]]
+            for key in features
+        ])
+
+        return combined_features
+
+    except Exception as e:
+        print(f"Error processing audio: {e}")
+        return None
+
+def combine_features(metadata, data_path):
+    """
+    Combine audio features with metadata (age, gender, educ).
+    This version tries .mp3 first, then .wav if .mp3 not found.
+    """
+    features = []
+    labels = []
+
+    for index, row in metadata.iterrows():
+        file_name = row['adressfname']  # e.g., "adrso002"
+
+        # 1) Try .mp3 first
+        file_path_mp3 = os.path.join(data_path, file_name + ".mp3")
+        file_path_wav = os.path.join(data_path, file_name + ".wav")
+
+        # 2) Determine which file actually exists
+        if os.path.isfile(file_path_mp3):
+            file_path = file_path_mp3
+        elif os.path.isfile(file_path_wav):
+            file_path = file_path_wav
+        else:
+            print(f"File not found (neither .mp3 nor .wav) for: {file_name}")
+            continue
+
+        # 3) Extract features
+        audio_features = extract_audio_features(file_path)
+        if audio_features is not None:
+            # Normalize and encode metadata features
+            age = row['age'] / 100.0    # e.g., scale age by /100
+            gender = 1 if row['gender'].lower() == 'male' else 0
+
+            combined_features = np.concatenate((audio_features, [age, gender]))
+            features.append(combined_features)
+            labels.append(row['dx'])
+
+    return np.array(features), np.array(labels)
+
+def predict_with_fitted_scaling(
+        file_path, age, gender, model, significant_features,
+        sr=16000, lowcut=300, highcut=4000, order=6, noise_duration=0.5, prop_decrease=0.9
+):
+    """
+    Predicts the class of a single audio file by fitting the imputer and scaler
+    inside the function, ensuring that the features align with the model input.
+
+    Parameters:
+    - file_path (str): Path to the audio file.
+    - age (float): Age of the subject.
+    - gender (str): Gender of the subject ("male" or "female").
+    - model (keras.Model): Loaded trained model.
+    - significant_features (list): List of 96 significant features.
+    - sr, lowcut, highcut, order, noise_duration, prop_decrease: Preprocessing parameters.
+
+    Returns:
+    - prediction (int): Predicted class label.
+    - confidence (float): Confidence of the prediction (max probability).
+    """
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+
+    # Step 1: Preprocess the audio
+    try:
+        processed_audio, _ = preprocess_audio(
+            file_path, sr=sr, lowcut=lowcut, highcut=highcut,
+            order=order, noise_duration=noise_duration, prop_decrease=prop_decrease
+        )
+    except Exception as e:
+        raise ValueError(f"Error in audio preprocessing: {e}")
+
+    # Step 2: Extract features from processed audio
+    extracted_features = extract_audio_features(audio=processed_audio, sr=sr)
+    if extracted_features is None:
+        raise ValueError("Feature extraction failed for the given audio file.")
+
+    # Step 3: Combine features with metadata (age, gender)
+    age_normalized = age / 100.0  # Normalize age
+    gender_encoded = 1 if gender.lower() == 'male' else 0  # Encode gender
+    combined_features = np.append(extracted_features, [age_normalized, gender_encoded])
+
+    # Step 4: Create a DataFrame for filtering significant features
+    feature_names = [f"feature_{i}" for i in range(len(combined_features))]
+    feature_df = pd.DataFrame([combined_features], columns=feature_names)
+
+    # Step 5: Filter only the significant features
+    try:
+        filtered_features = feature_df[significant_features].to_numpy()
+    except KeyError as e:
+        raise ValueError(f"Feature mismatch: {e}")
+
+    # Step 6: Fit and apply imputation
+    imputer = SimpleImputer(strategy='mean')
+    filtered_features = imputer.fit_transform(filtered_features)
+
+    # Step 7: Fit and apply scaling
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(filtered_features)
+
+    # Step 8: Reshape for the model
+    reshaped_features = np.expand_dims(scaled_features, axis=-1)  # Shape: (1, num_features, 1)
+
+    # Step 9: Predict using the model
+    prediction_probs = model.predict(reshaped_features)
+    prediction = np.argmax(prediction_probs, axis=1)[0]  # Predicted class label
+    confidence = np.max(prediction_probs)  # Confidence (highest probability)
+
+    # Map class index to label
+    class_mapping = {0: "Control", 1: "ProbableAD"}
+    predicted_class_label = class_mapping[prediction]
+    print(predicted_class_label)
+    return predicted_class_label, confidence
+
+
+def predict_audio(file_path, age, gender):
+    """
+    Predicts the class of an audio file.
+
+    Returns:
+    - tuple: (predicted_class_label, confidence)
+    """
+    try:
+        audio_model = tf.keras.models.load_model('app/models/best_model_english.keras')
+        significant_features = joblib.load('app/models/significant_features.pkl')
+
+        # Load and preprocess audio
+        try:
+            preprocessed_audio, sr = preprocess_audio(file_path)
+        except Exception as e:
+            raise Exception(f"Error preprocessing audio: {str(e)}")
+
+        # Make prediction
+        predicted_class_label, confidence = predict_with_fitted_scaling(
+            file_path, age, gender, audio_model, significant_features
+        )
+
+        return predicted_class_label, confidence
+
+    except Exception as e:
+        raise Exception(f"Error in prediction pipeline: {str(e)}")
