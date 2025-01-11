@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Typography, Button, TextField, Card, CardContent, CardMedia, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, Button, IconButton, TextField, Card, CardContent, CardMedia, CircularProgress, Alert } from '@mui/material';
 
 interface PredictionResult {
     result: {
@@ -225,7 +225,27 @@ const ImageTab = () => {
             <Box>
                 <Button
                     variant="contained"
-                    sx={{ mx: 2, px: 4, py: 2, fontSize: '1rem' }}
+                    startIcon={
+                        <Box
+                            component="img"
+                            src="/2d-brain.png"
+                            alt="2d-brain"
+                            sx={{
+                                height: 28,
+                                width: 28,
+                            }}
+                        />
+                    }
+                    sx={{
+                        mx: 2,
+                        px: 4,
+                        py: 2,
+                        fontSize: '1rem',
+                        '& .MuiButton-startIcon': {
+                            marginRight: 1.5
+                        },
+                        width: '30%'
+                    }}
                     onClick={() => {
                         setImageType('dicom');
                         setResult(null);
@@ -238,13 +258,34 @@ const ImageTab = () => {
                 </Button>
                 <Button
                     variant="contained"
-                    sx={{ mx: 2, px: 4, py: 2, fontSize: '1rem' }}
                     onClick={() => {
                         setImageType('3d');
                         setResult(null);
                         setError(null);
                         setImagePreview(null);
                         setSelectedFiles(null);
+                    }}
+                    startIcon={
+                        <Box
+                            component="img"
+                            src="/3d-brain.png"
+                            alt="2d-brain"
+                            sx={{
+                                height: 28,
+                                width: 28,
+                            }}
+                        />
+                    }
+                    sx={{
+                        mx: 2,
+                        px: 4,
+                        py: 2,
+                        fontSize: '1rem',
+                        '& .MuiButton-startIcon': {
+                            marginRight: 1.5
+                        },
+                        width: '30%'
+
                     }}
                 >
                     NIfTI File
