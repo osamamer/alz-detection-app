@@ -505,7 +505,7 @@ def combine_features(metadata, data_path):
     return np.array(features), np.array(labels)
 
 def predict_with_fitted_scaling(
-        file_path, age, gender, model, significant_features,
+        file_path, age, gender, model, significant_features, scaler,
         sr=16000, lowcut=300, highcut=4000, order=6, noise_duration=0.5, prop_decrease=0.9
 ):
     """
@@ -556,13 +556,9 @@ def predict_with_fitted_scaling(
     except KeyError as e:
         raise ValueError(f"Feature mismatch: {e}")
 
-    # Step 6: Fit and apply imputation
-    imputer = SimpleImputer(strategy='mean')
-    filtered_features = imputer.fit_transform(filtered_features)
 
     # Step 7: Fit and apply scaling
-    scaler = StandardScaler()
-    scaled_features = scaler.fit_transform(filtered_features)
+    scaled_features = scaler.transform(filtered_features)
 
     # Step 8: Reshape for the model
     reshaped_features = np.expand_dims(scaled_features, axis=-1)  # Shape: (1, num_features, 1)
@@ -576,6 +572,7 @@ def predict_with_fitted_scaling(
     class_mapping = {0: "Control", 1: "ProbableAD"}
     predicted_class_label = class_mapping[prediction]
     print(predicted_class_label)
+    print(confidence)
     return predicted_class_label, confidence
 
 
@@ -588,6 +585,7 @@ def predict_audio(file_path, age, gender):
     """
     try:
         audio_model = tf.keras.models.load_model('app/models/best_model_english.keras')
+        scaler = joblib.load('app/models/scaler.pkl')
         significant_features = joblib.load('app/models/significant_features.pkl')
 
         # Load and preprocess audio
@@ -598,7 +596,7 @@ def predict_audio(file_path, age, gender):
 
         # Make prediction
         predicted_class_label, confidence = predict_with_fitted_scaling(
-            file_path, age, gender, audio_model, significant_features
+            file_path, age, gender, audio_model, significant_features, scaler
         )
 
         return predicted_class_label, confidence

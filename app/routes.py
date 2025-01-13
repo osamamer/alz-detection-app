@@ -109,6 +109,7 @@ def predict_3d():
 
 @main_routes.route('/predict-audio', methods=['POST'])
 def predict_audio_route():
+    print(f"Starting prediction route with cwd: {os.getcwd()}")
     try:
         # Validate that all required fields are present
         if 'audio' not in request.files:
