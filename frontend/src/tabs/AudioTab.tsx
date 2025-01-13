@@ -241,7 +241,29 @@ const AudioTab = () => {
                     </Grid>
                 </Grid>
             </Paper>
-
+            {/* Cookie Theft Image */}
+            <Paper elevation={3} sx={{ p: 4, borderRadius: 2, mb: 2 }}>
+                <Typography variant="h5" gutterBottom color="primary">
+                    Description Task
+                </Typography>
+                <Typography variant="body1" paragraph sx={{ mb: 3 }}>
+                    Please describe everything you see happening in this picture in as much detail as possible.
+                    Your description should be at least 30 seconds long.
+                </Typography>
+                <Box
+                    component="img"
+                    src="/cookie-theft.png"
+                    alt="Cookie Theft Picture"
+                    sx={{
+                        width: '50%',
+                        maxWidth: 800,
+                        height: 'auto',
+                        display: 'block',
+                        margin: '0 auto',
+                        borderRadius: 1
+                    }}
+                />
+            </Paper>
             {/* Audio Input Options */}
             <Grid container spacing={4} justifyContent="center" sx={{ mb: 4 }}>
                 <Grid item xs={12} md={6}>
@@ -370,29 +392,7 @@ const AudioTab = () => {
                 </Paper>
             )}
 
-            {/* Cookie Theft Image */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 2 }}>
-                <Typography variant="h5" gutterBottom color="primary">
-                    Description Task
-                </Typography>
-                <Typography variant="body1" paragraph sx={{ mb: 3 }}>
-                    Please describe everything you see happening in this picture in as much detail as possible.
-                    Your description should be at least 30 seconds long.
-                </Typography>
-                <Box
-                    component="img"
-                    src="/cookie-theft.png"
-                    alt="Cookie Theft Picture"
-                    sx={{
-                        width: '100%',
-                        maxWidth: 800,
-                        height: 'auto',
-                        display: 'block',
-                        margin: '0 auto',
-                        borderRadius: 1
-                    }}
-                />
-            </Paper>
+
         </Box>
     );
 };
