@@ -76,7 +76,14 @@ const AudioTab = () => {
             if (data.error) {
                 setError(data.error);
             } else {
-                setResult(data);
+                // Extract the nested result object
+                const resultData = data.result;
+                setResult({
+                    prediction: resultData.prediction,
+                    confidence: resultData.confidence,
+                    age: resultData.age,
+                    gender: resultData.gender
+                });
             }
         } catch (err) {
             setError('Failed to process audio. Please try again.');
@@ -328,13 +335,21 @@ const AudioTab = () => {
 
             {/* Results Section */}
             {result && (
-                <Paper elevation={3} sx={{ p: 4, mb: 4, borderRadius: 2, bgcolor: result.prediction === 'Control' ? 'success.light' : 'warning.light' }}>
+                <Paper
+                    elevation={3}
+                    sx={{
+                        p: 4,
+                        mb: 4,
+                        borderRadius: 2,
+                        // bgcolor: result.prediction === 'Control' ? 'success.light' : 'warning.light'
+                    }}
+                >
                     <Typography variant="h5" gutterBottom color="primary">
                         Analysis Results
                     </Typography>
 
                     <Box sx={{ mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>
+                        <Typography variant="h6" gutterBottom sx={{color: result.prediction === 'Control' ? 'success.light' : 'warning.light'}}>
                             {result.prediction === 'Control'
                                 ? 'No Cognitive Impairment Detected'
                                 : 'Potential Cognitive Changes Detected'}
@@ -358,7 +373,7 @@ const AudioTab = () => {
             {/* Cookie Theft Image */}
             <Paper elevation={3} sx={{ p: 4, borderRadius: 2 }}>
                 <Typography variant="h5" gutterBottom color="primary">
-                    Cookie Theft Picture Description Task
+                    Description Task
                 </Typography>
                 <Typography variant="body1" paragraph sx={{ mb: 3 }}>
                     Please describe everything you see happening in this picture in as much detail as possible.
