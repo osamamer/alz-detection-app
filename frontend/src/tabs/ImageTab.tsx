@@ -148,8 +148,35 @@ const ImageTab = () => {
         }
     };
 
+    const getDiagnosisColor = (predictedClass: string): string => {
+        switch (predictedClass) {
+            case 'CN':
+                return '#4caf50'; // green
+            case 'MCI':
+                return '#ff9800'; // yellow/orange
+            case 'AD':
+                return '#f44336'; // red
+            default:
+                return 'inherit';
+        }
+    };
+
+    const getFullClassName = (abbreviation: string): string => {
+        switch (abbreviation) {
+            case 'CN':
+                return 'Cognitively Normal';
+            case 'MCI':
+                return 'Mild Cognitive Impairment';
+            case 'AD':
+                return "Alzheimer's Disease";
+            default:
+                return abbreviation;
+        }
+    };
+
     const renderPredictionResult = (result: PredictionResult) => {
         const confidenceLevel = result.result.probabilities[result.result.predicted_class] * 100;
+        const diagnosisColor = getDiagnosisColor(result.result.predicted_class);
 
         return (
             <Card sx={{ mt: 4, maxWidth: 800, mx: 'auto', p: 3 }}>
@@ -163,7 +190,15 @@ const ImageTab = () => {
 
                 <Typography variant="body1" paragraph>
                     We have analyzed your brain scan using our advanced AI system.
-                    The analysis was completed with {confidenceLevel.toFixed(1)}% confidence.
+                    The analysis indicates a pattern consistent with{' '}
+                    <Typography component="span" sx={{
+                        color: diagnosisColor,
+                        fontWeight: 'bold',
+                        display: 'inline'
+                    }}>
+                        {getFullClassName(result.result.predicted_class)}
+                    </Typography>{' '}
+                    with {confidenceLevel.toFixed(1)}% confidence.
                 </Typography>
 
                 <Typography variant="body1" paragraph>
@@ -172,11 +207,18 @@ const ImageTab = () => {
 
                 <Box sx={{ mt: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
                     <Typography variant="subtitle1" gutterBottom>
-                        Detailed Analysis:
+                        Model Probabilities:
                     </Typography>
                     {Object.entries(result.result.probabilities).map(([className, probability]) => (
-                        <Typography key={className} variant="body2" sx={{ my: 1 }}>
-                            {className}: {(probability * 100).toFixed(1)}%
+                        <Typography
+                            key={className}
+                            variant="body2"
+                            sx={{
+                                my: 1,
+                                color: getDiagnosisColor(className)
+                            }}
+                        >
+                            {getFullClassName(className)}: {(probability * 100).toFixed(1)}%
                         </Typography>
                     ))}
                 </Box>
